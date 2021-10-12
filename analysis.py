@@ -3,18 +3,18 @@ import pandas as pd
 import numpy as np
 
 df = pd.read_csv("scraping/draft.csv")
-df = df[df["Position"] != "Unknown"]
-print(df["Position"].unique())
+df = df[df["position"] != "Unknown"]
+print(df["position"].unique())
 
 
-df["Big"] = np.where(df["Position"].str.contains("Center"), 1, 0,)
+df["big"] = np.where(df["position"].str.contains("Center"), 1, 0,)
 
 d = {"Year": [], "% Center": []}
 
 for y in df["Year"].unique():
-    df_year = df[df["Year"] == y]
+    df_year = df[df["year"] == y]
     d["Year"].append(y)
-    d["% Center"].append(df_year["Big"].sum() / df_year["Big"].count())
+    d["% Center"].append(df_year["big"].sum() / df_year["big"].count())
 
 pd.DataFrame(d).to_csv("draft_center_pct.csv")
 

@@ -45,12 +45,12 @@ def scrape_year(year):
                 "https://www.basketball-reference.com/" + tds[2].find("a")["href"]
             )
             d = {
-                "Year": year,
-                "Pick": tds[0].text,
-                "Team": tds[1].text,
-                "Player": tds[2].text,
-                "Position": scrape_player_position(player_link),
-                "Link": player_link,
+                "year": year,
+                "pick": tds[0].text,
+                "team": tds[1].text,
+                "player": tds[2].text,
+                "position": scrape_player_position(player_link),
+                "link": player_link,
             }
             ds.append(d)
 
@@ -77,14 +77,45 @@ def scrape_player_salary(player_link):
         tds = tr.find_all("td")
 
         d = {
-            "Season": th.text,
-            "Teams": tds[0].text,
-            "Lg": tds[1].text,
-            "Salary": tds[2].text,
-            "Link": player_link,
+            "season": th.text,
+            "teams": tds[0].text,
+            "lg": tds[1].text,
+            "salary": tds[2].text,
+            "link": player_link,
         }
         ds.append(d)
 
+    return ds
+
+
+def scrape_salary_cap():
+    s = requests.Session()
+    response = s.get(
+        "https://www.basketball-reference.com/contracts/salary-cap-history.html"
+    )
+    r = response.text
+
+    soup = BeautifulSoup(r, "html.parser")
+
+    html_commented = soup.find(string=re.compile('id="salary_cap_history"'))
+    if html_commented is None:
+        return None
+    soup = BeautifulSoup(html_commented, "html.parser")
+
+    ds = []
+    trs = soup.find("table", {"id": "salary_cap_history"}).find_all(
+        "tr", class_=lambda x: x != "thead"
+    )
+    for tr in trs:
+        th = tr.find("th")
+        tds = tr.find_all("td")
+
+        d = {
+            "season": th.text,
+            "salary_cap": tds[0].text,
+        }
+        ds.append(d)
+    print(ds)
     return ds
 
 
@@ -112,5 +143,32 @@ df = pd.read_csv("players.csv")
 for link in tqdm(df["Link"].unique()):
     ds = scrape_player_salary(link)
     if ds != None:
-        write_csv("salaries.csv", ds)
+        write_csv("salaries_raw.csv", ds)
 
+# Scrape salary cap data
+ds = scrape_salary_cap()
+write_csv("salary_cap.csv", ds)
+df = pd.read_csv("salary_cap.csv")
+df["season"] = df["season"].apply(lambda x: str(x).split("-")[0])
+df["salary_cap"] = df["salary_cap"].apply(lambda x: int(re.sub("[^0-9]", "", str(x))))
+df.to_csv("salary_cap.csv", index=False)
+
+# PROCESSING
+
+# Clean up salary data
+df = pd.read_csv("salaries_raw.csv")
+df = df.dropna()
+df["season"] = df["season"].apply(lambda x: str(x).split("-")[0])
+
+df["salary"] = df["salary"].apply(lambda x: 0 if str(x).find("Minimum") != -1 else x)
+df["salary"] = df["salary"].apply(lambda x: int(re.sub("[^0-9]", "", str(x))))
+
+df.to_csv("salaries.csv", index=False)
+
+# Add salary cap data to salaries
+df = pd.read_csv("salary_cap.csv")
+df_salaries = pd.read_csv("salaries.csv")
+df_salaries["salary_cap"] = df_salaries["season"].apply(
+    lambda x: max(df[df["season"] == x]["salary_cap"])
+)
+df_salaries.to_csv("salaries.csv", index=False)
