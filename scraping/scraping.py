@@ -88,6 +88,35 @@ def scrape_player_salary(player_link):
     return ds
 
 
+# Get player data from player link
+def scrape_player_stats(player_link):
+    s = requests.Session()
+    response = s.get(player_link)
+    r = response.text
+
+    soup = BeautifulSoup(r, "html.parser")
+
+    ds = []
+    if soup.find("table", {"id": "per_game"}) == None:
+        return None
+    trs = soup.find("table", {"id": "per_game"}).find("tbody").find_all("tr")
+    for tr in trs:
+        th = tr.find("th")
+        tds = tr.find_all("td")
+        if th == None:
+            continue
+
+        d = {}
+        d[th.get("data-stat")] = th.text
+        for td in tds:
+            d[td.get("data-stat")] = td.text
+        d["link"] = player_link
+
+        ds.append(d)
+
+    return ds
+
+
 def scrape_salary_cap():
     s = requests.Session()
     response = s.get(
@@ -140,10 +169,16 @@ for year in tqdm(range(1989, 2022)):
 df = pd.read_csv("players.csv")
 
 # Scrape salary data
-for link in tqdm(df["Link"].unique()):
+for link in tqdm(df["link"].unique()):
     ds = scrape_player_salary(link)
     if ds != None:
         write_csv("salaries_raw.csv", ds)
+
+# Scrape player data
+for link in tqdm(df["link"].unique()):
+    ds = scrape_player_stats(link)
+    if ds != None:
+        write_csv("data_raw.csv", ds)
 
 # Scrape salary cap data
 ds = scrape_salary_cap()
@@ -172,3 +207,10 @@ df_salaries["salary_cap"] = df_salaries["season"].apply(
     lambda x: max(df[df["season"] == x]["salary_cap"])
 )
 df_salaries.to_csv("salaries.csv", index=False)
+
+# Clean up player data
+df = pd.read_csv("data_raw.csv")
+df = df.dropna()
+df["season"] = df["season"].apply(lambda x: str(x).split("-")[0])
+
+df.to_csv("player_data.csv", index=False)
