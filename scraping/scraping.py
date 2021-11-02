@@ -112,6 +112,11 @@ def scrape_player_stats(player_link):
             d[td.get("data-stat")] = td.text
         d["link"] = player_link
 
+        if th.find("span", {"class": "sr_star"}) != None:
+            d["all_star"] = 1
+        else:
+            d["all_star"] = 0
+
         ds.append(d)
 
     return ds
@@ -178,7 +183,7 @@ for link in tqdm(df["link"].unique()):
 for link in tqdm(df["link"].unique()):
     ds = scrape_player_stats(link)
     if ds != None:
-        write_csv("data_raw.csv", ds)
+        write_csv("data_raw2.csv", ds)
 
 # Scrape salary cap data
 ds = scrape_salary_cap()
@@ -209,8 +214,20 @@ df_salaries["salary_cap"] = df_salaries["season"].apply(
 df_salaries.to_csv("salaries.csv", index=False)
 
 # Clean up player data
-df = pd.read_csv("data_raw.csv")
-df = df.dropna()
+df = pd.read_csv("data_raw2.csv")
+df = df.dropna(how="all")
+df = df.drop_duplicates()
 df["season"] = df["season"].apply(lambda x: str(x).split("-")[0])
+
+
+def should_keep(x):
+    df_season = df[(df["link"] == x["link"]) & (df["season"] == x["season"])]
+    if df_season.shape[0] == 1 or x["team_id"] == "TOT":
+        return True
+    else:
+        return False
+
+
+df = df.where(df.apply(should_keep, axis=1)).dropna(how="all")
 
 df.to_csv("player_data.csv", index=False)
