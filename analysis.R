@@ -4,20 +4,27 @@
 rm(list=ls()) # Removes all objects from the environment
 cat('\014') # Clears the console
 
+setwd("~/Desktop/NBA-Bigs") # Set working directory
+
+if (!require(haven)) install.packages("haven"); library(haven)
+if (!require(sandwich)) install.packages("sandwich"); library(sandwich)
+if (!require(lmtest)) install.packages("lmtest"); library(lmtest)
+if (!require(stargazer)) install.packages("stargazer"); library(stargazer)
+if (!require(tidyverse)) install.packages("tidyverse"); library(tidyverse)
+if (!require(lubridate)) install.packages("lubridate"); library(lubridate)
+if (!require(statar)) install.packages("statar"); library(statar)
+
 # Read in the data
 players <- read.csv("scraping/players.csv")
 salaries <- read.csv("scraping/salaries.csv")
-salary_cap <- read.csv("scraping/salary_cap.csv")
 player_data <- read.csv("scraping/player_data.csv")
 
-summary(player_data)
+# Add a column "normalized_salary" which represents each salary as a fraction of the salary cap
+salaries$normalized_salary <- salaries$salary / salaries$salary_cap
 
-# Summary statistics
-summary(players)
-summary(salaries)
-summary(salary_cap)
+# The following functions are used with "apply" to generate new columns
 
-get_career <- function(x) {
+calculate_career_length <- function(x) {
   sal <- salaries[salaries$link == x[["link"]],]
   if (nrow(sal) == 0) {
     return(NA)
@@ -25,18 +32,18 @@ get_career <- function(x) {
   return(max(sal$season) - min(sal$season))
 }
 
-get_years <- function(x) {
+calculate_max_salary_yrs <- function(x) {
   sal <- salaries[salaries$link == x[["link"]],]
   if (nrow(sal) == 0) {
     return(NA)
   }
-  max_sal <- max(sal$salary)
-  max_sal_year <- min(sal$season[sal$salary == max_sal])
+  max_sal <- max(sal$normalized_salary)
+  max_sal_year <- min(sal$season[sal$normalized_salary == max_sal])
   first_year <- min(sal$season)
   return(max_sal_year - first_year)
 }
 
-get_pts_years <- function(x) {
+calculate_max_pts_yrs <- function(x) {
   dat <- player_data[player_data$link == x[["link"]],]
   if (nrow(dat) == 0) {
     return(NA)
@@ -47,49 +54,78 @@ get_pts_years <- function(x) {
   return(max_ptrs_year - first_year)
 }
 
-salaries$normalized_salary <- salaries$salary / salaries$salary_cap
-# Add a column "Career" that calculates number of years in career
-players$career <- apply(players, 1, FUN = get_career)
-# Add a column "Time" that calculates number of years between first contract and highest contract in career
-players$time <- apply(players, 1, FUN = get_years)
+calculate_good_pts_yrs <- function(x) {
+  dat <- player_data[player_data$link == x[["link"]],]
+  if (nrow(dat) == 0) {
+    return(NA)
+  }
+  good_pts <- max(dat$pts_per_g) * 0.9
+  good_ptrs_year <- min(dat$season[dat$pts_per_g >= good_pts])
+  first_year <- min(dat$season)
+  return(good_ptrs_year - first_year)
+}
 
-players$time_pts <- apply(players, 1, FUN = get_pts_years)
+is_active_player <- function(x) {
+  sal <- salaries[salaries$link == x[["link"]],]
+  return(nrow(sal[sal$season == 2020,]))
+}
+  
+calculate_all_star_yrs <- function(x) {
+  dat <- player_data[player_data$link == x[["link"]],]
+  if (nrow(dat) == 0) {
+    return(NA)
+  }
+  if (nrow(dat[dat$all_star == 1,]) == 0) {
+    return(NA)
+  }
+  all_star_yr = min(dat$season[dat$all_star == 1])
+  first_yr = min(dat$season)
+  return(all_star_yr - first_yr)
+}
+
+## Add a column "career" that calculates number of years in career
+players$career <- apply(players, 1, FUN = calculate_career_length)
+## Add a column "max_sal_yrs" that calculates number of years between first contract and year with highest contract in career
+players$max_sal_yrs <- apply(players, 1, FUN = calculate_max_salary_yrs)
+## Add column "max_pts_yrs" that represents the number of years between first year and first year with highest ppg
+players$max_pts_yrs <- apply(players, 1, FUN = calculate_max_pts_yrs)
+## Add column "good_pts_yrs" that represents the number of years between first year and first year with ppg equal to at least 90% of their best ppg year
+players$good_pts_yrs <- apply(players, 1, FUN = calculate_good_pts_yrs)
+## Add column "is_active" that is 1 if player is currently active and 0 otherwise
+players$is_active <- apply(players, 1, FUN = is_active_player)
+## Add column "all_star_yrs" that is the number of years it took a player to make their first all star team
+players$all_star_yrs <- apply(players, 1, FUN = calculate_all_star_yrs)
+
+# Aggregate average years to make all star team by draft year
+players_centers = players[grepl("Center", players$position),]
+players_others = players[!grepl("Center", players$position),]
+
+as_centers <- aggregate(list(all_star_yrs=players_centers$all_star_yrs), list(year=players_centers$year), FUN=mean, na.rm = TRUE) 
+as_others <- aggregate(list(all_star_yrs=players_others$all_star_yrs), list(year=players_others$year), FUN=mean, na.rm = TRUE) 
 
 
-players$ratio <- players$time / players$career
-players$ratio_pts <- players$time_pts / players$career
-players$ratio_pts <- ifelse(is.infinite(players$ratio_pts), NA, players$ratio_pts)
+binscatter<-function(num_bins, data, xvar, yvar, color, TITLE, YTITLE){
+  ggplot(data, aes(x = xvar , y = yvar, color = color)) +
+    stat_binmean(n = num_bins, geom = "line") + 
+    stat_binmean(n = num_bins, geom = "point") +
+    labs(title = TITLE, 
+         y = YTITLE,
+         x = "Date")
+}
 
-players1 <- players[players$year <= 2002,]
+ggplot(as_centers[as_centers["year"] < 2015,], aes(x = year , y = all_star_yrs, color = "Centers")) + 
+  geom_point() +
+  geom_smooth(method=lm)
 
-mean(players1$career[players1$position != "Center"], na.rm = TRUE)
-mean(players1$career[players1$position == "Center"], na.rm = TRUE)
+ggplot(as_others[as_others["year"] < 2015,], aes(x = year , y = all_star_yrs, color = "Others")) + 
+  geom_point() +
+  geom_smooth(method=lm)
 
-mean(players1$time[players1$position != "Center"], na.rm = TRUE)
-mean(players1$time[players1$position == "Center"], na.rm = TRUE)
+binscatter(2, as_centers, as_centers$year, as_centers$all_star_yrs, "Centers", "Average years to make all star team", "years")
+binscatter(2, as_others, as_others$year, as_others$all_star_yrs, "Others", "Average years to make all star team", "years")
 
-mean(players1$ratio[players1$position != "Center"], na.rm = TRUE)
-mean(players1$ratio[players1$position == "Center"], na.rm = TRUE)
+good_centers <- aggregate(list(good_pts_yrs=players_centers$good_pts_yrs), list(year=players_centers$year), FUN=mean, na.rm = TRUE) 
+good_others <- aggregate(list(good_pts_yrs=players_others$good_pts_yrs), list(year=players_others$year), FUN=mean, na.rm = TRUE) 
 
-mean(players1$time_pts[players1$position != "Center"], na.rm = TRUE)
-mean(players1$time_pts[players1$position == "Center"], na.rm = TRUE)
-
-mean(players1$ratio_pts[players1$position != "Center"], na.rm = TRUE)
-mean(players1$ratio_pts[players1$position == "Center"], na.rm = TRUE)
-
-players2 <- players[players$year > 2002 & players$year <= 2018,]
-
-mean(players2$career[players2$position != "Center"], na.rm = TRUE)
-mean(players2$career[players2$position == "Center"], na.rm = TRUE)
-
-mean(players2$time[players2$position != "Center"], na.rm = TRUE)
-mean(players2$time[players2$position == "Center"], na.rm = TRUE)
-
-mean(players2$ratio[players2$position != "Center"], na.rm = TRUE)
-mean(players2$ratio[players2$position == "Center"], na.rm = TRUE)
-
-mean(players2$time_pts[players2$position != "Center"], na.rm = TRUE)
-mean(players2$time_pts[players2$position == "Center"], na.rm = TRUE)
-
-mean(players2$ratio_pts[players2$position != "Center"], na.rm = TRUE)
-mean(players2$ratio_pts[players2$position == "Center"], na.rm = TRUE)
+binscatter(6, good_centers, good_centers$year, good_centers$good_pts_yrs, "Centers", "Average years to reach 90% max pts", "years")
+binscatter(6,good_others, good_others$year, good_others$good_pts_yrs, "Others", "Average years to reach 90% max pts", "years")
