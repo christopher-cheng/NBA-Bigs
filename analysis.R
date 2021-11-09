@@ -43,6 +43,17 @@ calculate_max_salary_yrs <- function(x) {
   return(max_sal_year - first_year)
 }
 
+calculate_good_salary_yrs <- function(x) {
+  sal <- salaries[salaries$link == x[["link"]],]
+  if (nrow(sal) == 0) {
+    return(NA)
+  }
+  good_sal <- max(sal$normalized_salary) * 0.9
+  good_sal_year <- min(sal$season[sal$normalized_salary >= good_sal])
+  first_year <- min(sal$season)
+  return(good_sal_year - first_year)
+}
+
 calculate_max_pts_yrs <- function(x) {
   dat <- player_data[player_data$link == x[["link"]],]
   if (nrow(dat) == 0) {
@@ -65,6 +76,25 @@ calculate_good_pts_yrs <- function(x) {
   return(good_ptrs_year - first_year)
 }
 
+calculate_max_rb <- function(x) {
+  dat <- player_data[player_data$link == x[["link"]],]
+  if (nrow(dat) == 0) {
+    return(NA)
+  }
+  return(max(dat$trb_per_g))
+}
+
+calculate_good_rb_yrs <- function(x) {
+  dat <- player_data[player_data$link == x[["link"]],]
+  if (nrow(dat) == 0) {
+    return(NA)
+  }
+  good_rb <- max(dat$trb_per_g) * 0.9
+  good_rb_yr <- min(dat$season[dat$trb_per_g >= good_rb])
+  first_year <- min(dat$season)
+  return(good_rb_yr - first_year)
+}
+
 is_active_player <- function(x) {
   sal <- salaries[salaries$link == x[["link"]],]
   return(nrow(sal[sal$season == 2020,]))
@@ -83,10 +113,28 @@ calculate_all_star_yrs <- function(x) {
   return(all_star_yr - first_yr)
 }
 
+calculate_max_salary <- function(x) {
+  sal <- salaries[salaries$link == x[["link"]],]
+  if (nrow(sal) == 0) {
+    return(NA)
+  }
+  return(max(sal$normalized_salary))
+}
+
+calculate_max_pts <- function(x) {
+  dat <- player_data[player_data$link == x[["link"]],]
+  if (nrow(dat) == 0) {
+    return(NA)
+  }
+  return(max(dat$pts_per_g))
+}
+
 ## Add a column "career" that calculates number of years in career
 players$career <- apply(players, 1, FUN = calculate_career_length)
 ## Add a column "max_sal_yrs" that calculates number of years between first contract and year with highest contract in career
 players$max_sal_yrs <- apply(players, 1, FUN = calculate_max_salary_yrs)
+## Add column "good_sal_yrs" that represents the number of years between first year and first year with sal equal to at least 90% of their best sal year
+players$good_sal_yrs <- apply(players, 1, FUN = calculate_good_salary_yrs)
 ## Add column "max_pts_yrs" that represents the number of years between first year and first year with highest ppg
 players$max_pts_yrs <- apply(players, 1, FUN = calculate_max_pts_yrs)
 ## Add column "good_pts_yrs" that represents the number of years between first year and first year with ppg equal to at least 90% of their best ppg year
@@ -95,37 +143,74 @@ players$good_pts_yrs <- apply(players, 1, FUN = calculate_good_pts_yrs)
 players$is_active <- apply(players, 1, FUN = is_active_player)
 ## Add column "all_star_yrs" that is the number of years it took a player to make their first all star team
 players$all_star_yrs <- apply(players, 1, FUN = calculate_all_star_yrs)
+## Add column max_sal
+players$max_sal <- apply(players, 1, FUN = calculate_max_salary)
+## Add column max_pts
+players$max_pts <- apply(players, 1, FUN = calculate_max_pts)
+## Add column good_rb_yrs
+players$good_rb_yrs <- apply(players, 1, FUN = calculate_good_rb_yrs)
 
-# Aggregate average years to make all star team by draft year
-players_centers = players[grepl("Center", players$position),]
-players_others = players[!grepl("Center", players$position),]
+players$pts_ratio <- players$good_pts_yrs / players$career
+players$sal_ratio <- players$good_sal_yrs / players$career
 
-as_centers <- aggregate(list(all_star_yrs=players_centers$all_star_yrs), list(year=players_centers$year), FUN=mean, na.rm = TRUE) 
-as_others <- aggregate(list(all_star_yrs=players_others$all_star_yrs), list(year=players_others$year), FUN=mean, na.rm = TRUE) 
+# Only look at players who have a max_sal at better than 25% percentile, and had a career length of 5 or more years OR 
+players <- players[players$max_sal >= quantile(players$max_sal, na.rm=TRUE)[2],]
+players <- players[players$career >= 5,]
+players <- players[players$is_active == 0 || players$career >= 8,]
 
+# Can we use points as a crude proxy for success? Compare with rebounding.
 
-binscatter<-function(num_bins, data, xvar, yvar, color, TITLE, YTITLE){
-  ggplot(data, aes(x = xvar , y = yvar, color = color)) +
-    stat_binmean(n = num_bins, geom = "line") + 
-    stat_binmean(n = num_bins, geom = "point") +
-    labs(title = TITLE, 
-         y = YTITLE,
-         x = "Date")
-}
+players$good_pt_rb_diff <- abs(players$good_rb_yrs - players$good_pts_yrs)
 
-ggplot(as_centers[as_centers["year"] < 2015,], aes(x = year , y = all_star_yrs, color = "Centers")) + 
-  geom_point() +
-  geom_smooth(method=lm)
+mean(players$good_pt_rb_diff,na.rm=TRUE)
+median(players$good_pt_rb_diff,na.rm=TRUE)
+sd(players$good_pt_rb_diff,na.rm=TRUE)
 
-ggplot(as_others[as_others["year"] < 2015,], aes(x = year , y = all_star_yrs, color = "Others")) + 
-  geom_point() +
-  geom_smooth(method=lm)
+ggplot(players, aes(x=year)) +
+  stat_binmean(aes(y=good_pts_yrs, color="Points"), data=players[grepl("Center", players$position),], n=10, geom="line") + 
+  stat_binmean(aes(y=good_pts_yrs, color="Points"), data=players[grepl("Center", players$position),], n=10, geom="point") +
+  stat_binmean(aes(y=good_rb_yrs, color="Rebounds"), data=players[grepl("Center", players$position),], n=10, geom="line") + 
+  stat_binmean(aes(y=good_rb_yrs, color="Rebounds"), data=players[grepl("Center", players$position),], n=10, geom="point") +
+  labs(title="Average years for centers to reach 90% max points and rebounds", 
+       y="Years",
+       x="Draft Year")
 
-binscatter(2, as_centers, as_centers$year, as_centers$all_star_yrs, "Centers", "Average years to make all star team", "years")
-binscatter(2, as_others, as_others$year, as_others$all_star_yrs, "Others", "Average years to make all star team", "years")
+# Points and rebounds seem pretty aligned
 
-good_centers <- aggregate(list(good_pts_yrs=players_centers$good_pts_yrs), list(year=players_centers$year), FUN=mean, na.rm = TRUE) 
-good_others <- aggregate(list(good_pts_yrs=players_others$good_pts_yrs), list(year=players_others$year), FUN=mean, na.rm = TRUE) 
+# Binscatter plots comparing centers and non-centers
 
-binscatter(6, good_centers, good_centers$year, good_centers$good_pts_yrs, "Centers", "Average years to reach 90% max pts", "years")
-binscatter(6,good_others, good_others$year, good_others$good_pts_yrs, "Others", "Average years to reach 90% max pts", "years")
+ggplot(players, aes(x=year)) +
+  stat_binmean(aes(y=good_pts_yrs, color="Center"), data=players[grepl("Center", players$position),], n=7, geom="line") + 
+  stat_binmean(aes(y=good_pts_yrs, color="Center"), data=players[grepl("Center", players$position),], n=7, geom="point") +
+  stat_binmean(aes(y=good_pts_yrs, color="Others"), data=players[!grepl("Center", players$position),], n=7, geom="line") + 
+  stat_binmean(aes(y=good_pts_yrs, color="Others"), data=players[!grepl("Center", players$position),], n=7, geom="point") +
+  labs(title="Average years to reach 90% max pts", 
+       y="Years",
+       x="Draft Year")
+
+ggplot(players, aes(x=year)) +
+  stat_binmean(aes(y=pts_ratio, color="Center"), data=players[grepl("Center", players$position),], n=7, geom="line") + 
+  stat_binmean(aes(y=pts_ratio, color="Center"), data=players[grepl("Center", players$position),], n=7, geom="point") +
+  stat_binmean(aes(y=pts_ratio, color="Others"), data=players[!grepl("Center", players$position),], n=7, geom="line") + 
+  stat_binmean(aes(y=pts_ratio, color="Others"), data=players[!grepl("Center", players$position),], n=7, geom="point") +
+  labs(title="Average years to reach 90% max pts ratio", 
+       y="Ratio",
+       x="Draft Year")
+
+ggplot(players, aes(x=year)) +
+  stat_binmean(aes(y=good_sal_yrs, color="Center"), data=players[grepl("Center", players$position),], n=5, geom="line") + 
+  stat_binmean(aes(y=good_sal_yrs, color="Center"), data=players[grepl("Center", players$position),], n=5, geom="point") +
+  stat_binmean(aes(y=good_sal_yrs, color="Others"), data=players[!grepl("Center", players$position),], n=5, geom="line") + 
+  stat_binmean(aes(y=good_sal_yrs, color="Others"), data=players[!grepl("Center", players$position),], n=5, geom="point") +
+  labs(title="Average years to reach 90% max sal", 
+       y="Years",
+       x="Draft Year")
+
+ggplot(players, aes(x=year)) +
+  stat_binmean(aes(y=sal_ratio, color="Center"), data=players[grepl("Center", players$position),], n=7, geom="line") + 
+  stat_binmean(aes(y=sal_ratio, color="Center"), data=players[grepl("Center", players$position),], n=7, geom="point") +
+  stat_binmean(aes(y=sal_ratio, color="Others"), data=players[!grepl("Center", players$position),], n=7, geom="line") + 
+  stat_binmean(aes(y=sal_ratio, color="Others"), data=players[!grepl("Center", players$position),], n=7, geom="point") +
+  labs(title="Average years to reach 90% max sal ratio", 
+       y="Ratio",
+       x="Draft Year")
