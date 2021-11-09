@@ -19,6 +19,8 @@ players <- read.csv("scraping/players.csv")
 salaries <- read.csv("scraping/salaries.csv")
 player_data <- read.csv("scraping/player_data.csv")
 
+player_data <- player_data[player_data$season <= 2020,]
+
 # Add a column "normalized_salary" which represents each salary as a fraction of the salary cap
 salaries$normalized_salary <- salaries$salary / salaries$salary_cap
 
@@ -214,3 +216,61 @@ ggplot(players, aes(x=year)) +
   labs(title="Average years to reach 90% max sal ratio", 
        y="Ratio",
        x="Draft Year")
+
+# Random background stuff
+players_centers = player_data[player_data$pos == "C",]
+
+tg = aggregate(list(tg=player_data$g), list(season=player_data$season), FUN=sum, na.rm=TRUE)
+tg_centers = aggregate(list(tg=players_centers$g), list(season=players_centers$season), FUN=sum, na.rm=TRUE)
+
+## Points per game
+pts = aggregate(list(pts=player_data$pts_per_g * player_data$g), list(season=player_data$season), FUN=sum, na.rm=TRUE)
+pts$pts_per_g <- pts$pts / tg$tg
+
+pts_centers = aggregate(list(pts=players_centers$pts_per_g * players_centers$g), list(season=players_centers$season), FUN=sum, na.rm=TRUE)
+pts_centers$pts_per_g <- pts_centers$pts / tg_centers$tg
+
+ggplot() +
+  geom_line(data=pts, mapping=aes(x=season,y=pts_per_g, color="All")) +
+  geom_point(data=pts, mapping=aes(x=season,y=pts_per_g, color="All")) +
+  geom_line(data=pts_centers, mapping=aes(x=season,y=pts_per_g, color="Centers")) +
+  geom_point(data=pts_centers, mapping=aes(x=season,y=pts_per_g, color="Centers"))
+
+## Rebounds per game
+trb = aggregate(list(trb_per_g=player_data$trb_per_g * player_data$g), list(season=player_data$season), FUN=sum, na.rm=TRUE)
+trb$trb_per_g <- trb$trb_per_g / tg$tg
+
+trb_centers = aggregate(list(trb_per_g=players_centers$trb_per_g * players_centers$g), list(season=players_centers$season), FUN=sum, na.rm=TRUE)
+trb_centers$trb_per_g <- trb_centers$trb_per_g / tg_centers$tg
+
+ggplot() +
+  geom_line(data=trb, mapping=aes(x=season,y=trb_per_g, color="All")) +
+  geom_point(data=trb, mapping=aes(x=season,y=trb_per_g, color="All")) +
+  geom_line(data=trb_centers, mapping=aes(x=season,y=trb_per_g, color="Centers")) +
+  geom_point(data=trb_centers, mapping=aes(x=season,y=trb_per_g, color="Centers"))
+
+## Assists per game
+ast = aggregate(list(ast_per_g=player_data$ast_per_g * player_data$g), list(season=player_data$season), FUN=sum, na.rm=TRUE)
+ast$ast_per_g <- ast$ast_per_g / tg$tg
+
+ast_centers = aggregate(list(ast_per_g=players_centers$ast_per_g * players_centers$g), list(season=players_centers$season), FUN=sum, na.rm=TRUE)
+ast_centers$ast_per_g <- ast_centers$ast_per_g / tg_centers$tg
+
+ggplot() +
+  geom_line(data=ast, mapping=aes(x=season,y=ast_per_g, color="All")) +
+  geom_point(data=ast, mapping=aes(x=season,y=ast_per_g, color="All")) +
+  geom_line(data=ast_centers, mapping=aes(x=season,y=ast_per_g, color="Centers")) +
+  geom_point(data=ast_centers, mapping=aes(x=season,y=ast_per_g, color="Centers"))
+
+## 3 pointers per game
+fg3a = aggregate(list(fg3a_per_g=player_data$fg3a_per_g * player_data$g), list(season=player_data$season), FUN=sum, na.rm=TRUE)
+fg3a$fg3a_per_g <- fg3a$fg3a_per_g / tg$tg
+
+fg3a_centers = aggregate(list(fg3a_per_g=players_centers$fg3a_per_g * players_centers$g), list(season=players_centers$season), FUN=sum, na.rm=TRUE)
+fg3a_centers$fg3a_per_g <- fg3a_centers$fg3a_per_g / tg_centers$tg
+
+ggplot() +
+  geom_line(data=fg3a, mapping=aes(x=season,y=fg3a_per_g, color="All")) +
+  geom_point(data=fg3a, mapping=aes(x=season,y=fg3a_per_g, color="All")) +
+  geom_line(data=fg3a_centers, mapping=aes(x=season,y=fg3a_per_g, color="Centers")) +
+  geom_point(data=fg3a_centers, mapping=aes(x=season,y=fg3a_per_g, color="Centers"))
